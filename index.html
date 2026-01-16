@@ -4,88 +4,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Grapple Thief - Kinetic Edition</title>
+    <title>Grapple Thief: Vault Heist</title>
     <style>
-        body { margin: 0; background: #0d1117; color: #c9d1d9; font-family: sans-serif; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
-        canvas { background: #161b22; border: 2px solid #30363d; display: block; cursor: crosshair; }
-        .ui { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        /* FIX: Changed height to 100% and added overflow-y for smaller screens */
+        body { margin: 0; background: #0d1117; color: #c9d1d9; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        canvas { background: #161b22; border: 2px solid #30363d; display: block; cursor: crosshair; max-width: 100%; height: auto; }
+        .ui { position: absolute; top: 10px; left: 10px; pointer-events: none; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+        .controls-hint { position: absolute; bottom: 10px; color: #8b949e; font-size: 12px; }
     </style>
 </head>
 <body>
 
     <div class="ui">
-        <h2 id="status">Vault Infiltration</h2>
-        <div id="score">Momentum: 0</div>
+        <h2 id="status" style="margin:0; color:#58a6ff;">VAULT INFILTRATION</h2>
+        <div id="score">Gems Collected: 0</div>
+        <div id="momentum">Momentum: 0</div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
+    <div class="controls-hint">HOLD MOUSE to Grapple to Ceilings | Click Gems to Steal</div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        canvas.width = 800; canvas.height = 600;
+        
+        // Responsive Width
+        canvas.width = 800; canvas.height = 500;
 
-        const gravity = 0.25;
-        const friction = 0.98;
+        const gravity = 0.20;
+        const friction = 0.985;
         let particles = [];
-        let shakeAmount = 0;
+        let score = 0;
 
         let player = { x: 100, y: 300, vx: 0, vy: 0, radius: 10, color: '#58a6ff' };
         let hook = { active: false, x: 0, y: 0, length: 0 };
+        
+        // Added Platforms and Gems
+        let platforms = [
+            {x: 0, y: 0, w: 800, h: 40}, // Ceiling
+            {x: 200, y: 150, w: 100, h: 20},
+            {x: 500, y: 250, w: 100, h: 20},
+            {x: 350, y: 350, w: 100, h: 20}
+        ];
+
+        let gems = [
+            {x: 250, y: 120, collected: false},
+            {x: 550, y: 220, collected: false},
+            {x: 400, y: 320, collected: false}
+        ];
 
         class Particle {
-            constructor(x, y, vx, vy, color, life) {
+            constructor(x, y, color) {
                 this.x = x; this.y = y;
-                this.vx = vx; this.vy = vy;
+                this.vx = (Math.random() - 0.5) * 5;
+                this.vy = (Math.random() - 0.5) * 5;
+                this.life = 20;
                 this.color = color;
-                this.life = life;
-                this.maxLife = life;
             }
-            update() {
-                this.x += this.vx;
-                this.y += this.vy;
-                this.life--;
-            }
+            update() { this.x += this.vx; this.y += this.vy; this.life--; }
             draw() {
-                ctx.globalAlpha = this.life / this.maxLife;
+                ctx.globalAlpha = this.life / 20;
                 ctx.fillStyle = this.color;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillRect(this.x, this.y, 3, 3);
                 ctx.globalAlpha = 1;
-            }
-        }
-
-        function createExplosion(x, y, color, count, power = 6) {
-            for (let i = 0; i < count; i++) {
-                particles.push(new Particle(
-                    x, y, 
-                    (Math.random() - 0.5) * power, 
-                    (Math.random() - 0.5) * power, 
-                    color, 
-                    20 + Math.random() * 20
-                ));
             }
         }
 
         window.addEventListener('mousedown', (e) => {
             const rect = canvas.getBoundingClientRect();
-            hook.x = e.clientX - rect.left;
-            hook.y = e.clientY - rect.top;
-            const dx = hook.x - player.x;
-            const dy = hook.y - player.y;
-            hook.length = Math.sqrt(dx * dx + dy * dy);
-            hook.active = true;
-            createExplosion(hook.x, hook.y, '#f85149', 8, 3);
+            const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+            
+            // Only grapple if clicking high up (Ceiling or platforms)
+            if (mouseY < 400) {
+                hook.x = mouseX; hook.y = mouseY;
+                const dx = hook.x - player.x;
+                const dy = hook.y - player.y;
+                hook.length = Math.sqrt(dx * dx + dy * dy) * 0.8; // Tighten the rope
+                hook.active = true;
+            }
         });
 
         window.addEventListener('mouseup', () => hook.active = false);
 
         function update() {
-            // Apply Screen Shake decay
-            if (shakeAmount > 0) shakeAmount *= 0.9;
-            if (shakeAmount < 0.1) shakeAmount = 0;
-
             if (hook.active) {
                 const dx = player.x - hook.x;
                 const dy = player.y - hook.y;
@@ -93,12 +95,13 @@
 
                 if (distance > hook.length) {
                     const angle = Math.atan2(dy, dx);
+                    // Constraint physics
                     player.x = hook.x + Math.cos(angle) * hook.length;
                     player.y = hook.y + Math.sin(angle) * hook.length;
-                    const velocityAngle = Math.atan2(player.vy, player.vx);
-                    const force = Math.abs(Math.cos(velocityAngle - angle));
-                    player.vx -= Math.cos(angle) * force * 0.6;
-                    player.vy -= Math.sin(angle) * force * 0.6;
+                    
+                    // Swing momentum
+                    player.vx -= Math.cos(angle) * 0.5;
+                    player.vy -= Math.sin(angle) * 0.5;
                 }
             }
 
@@ -108,65 +111,66 @@
             player.x += player.vx;
             player.y += player.vy;
 
-            const speed = Math.sqrt(player.vx**2 + player.vy**2);
+            // Bounce off walls
+            if (player.y > canvas.height - 10) { player.y = canvas.height - 10; player.vy *= -0.4; }
+            if (player.x < 10 || player.x > canvas.width - 10) { player.vx *= -0.7; }
+
+            // Gem Collection
+            gems.forEach(gem => {
+                if (!gem.collected) {
+                    let d = Math.hypot(player.x - gem.x, player.y - gem.y);
+                    if (d < 20) {
+                        gem.collected = true;
+                        score += 100;
+                        for(let i=0; i<10; i++) particles.push(new Particle(gem.x, gem.y, '#f1c40f'));
+                    }
+                }
+            });
+
+            particles.forEach((p, i) => { p.update(); if(p.life <= 0) particles.splice(i, 1); });
             
-            // Trail
-            if (speed > 5) {
-                particles.push(new Particle(player.x, player.y, -player.vx * 0.2, -player.vy * 0.2, '#58a6ff', 15));
-            }
-
-            // Wall Collision with Shake
-            let hitWall = false;
-            if (player.x < 10) { player.x = 10; player.vx *= -0.5; hitWall = true; }
-            if (player.x > 790) { player.x = 790; player.vx *= -0.5; hitWall = true; }
-            if (player.y < 10) { player.y = 10; player.vy *= -0.5; hitWall = true; }
-            if (player.y > 590) { player.y = 590; player.vy *= -0.5; hitWall = true; }
-
-            if (hitWall && speed > 4) {
-                shakeAmount = speed * 1.5; // More speed = more shake
-                createExplosion(player.x, player.y, '#fff', 10, speed);
-            }
-
-            particles = particles.filter(p => p.life > 0);
-            particles.forEach(p => p.update());
-
-            document.getElementById('score').innerText = `Momentum: ${Math.floor(speed * 10)}`;
+            const speed = Math.sqrt(player.vx**2 + player.vy**2);
+            document.getElementById('momentum').innerText = `Momentum: ${Math.floor(speed * 10)}`;
+            document.getElementById('score').innerText = `Gems Collected: ${score}`;
         }
 
         function draw() {
-            ctx.save();
-            
-            // Apply Shake Translation
-            if (shakeAmount > 0) {
-                const dx = (Math.random() - 0.5) * shakeAmount;
-                const dy = (Math.random() - 0.5) * shakeAmount;
-                ctx.translate(dx, dy);
-            }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            ctx.clearRect(-10, -10, canvas.width + 20, canvas.height + 20);
+            // Draw Platforms
+            ctx.fillStyle = "#30363d";
+            platforms.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
 
-            // Draw Grapple
+            // Draw Gems
+            gems.forEach(gem => {
+                if (!gem.collected) {
+                    ctx.fillStyle = "#f1c40f";
+                    ctx.beginPath();
+                    ctx.arc(gem.x, gem.y, 8, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+
+            // Draw Rope
             if (hook.active) {
                 ctx.beginPath();
                 ctx.moveTo(player.x, player.y);
                 ctx.lineTo(hook.x, hook.y);
-                ctx.strokeStyle = '#30363d';
-                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#8b949e';
+                ctx.setLineDash([5, 5]);
                 ctx.stroke();
+                ctx.setLineDash([]);
             }
-
-            // Draw Particles
-            particles.forEach(p => p.draw());
 
             // Draw Player
             ctx.fillStyle = player.color;
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = player.color;
+            ctx.shadowBlur = 10; ctx.shadowColor = player.color;
             ctx.beginPath();
             ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
             ctx.fill();
-            
-            ctx.restore(); // Reset transform for next frame
+            ctx.shadowBlur = 0;
+
+            particles.forEach(p => p.draw());
         }
 
         function loop() { update(); draw(); requestAnimationFrame(loop); }
