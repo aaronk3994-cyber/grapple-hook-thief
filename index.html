@@ -1,207 +1,175 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Grapple Thief - Vault Heist</title>
+    <title>Grapple Thief - Kinetic Edition</title>
     <style>
-        body { 
-            margin: 0; background: #0d1117; color: #c9d1d9; 
-            font-family: sans-serif; overflow: hidden;
-            display: flex; flex-direction: column; align-items: center;
-        }
-        canvas { 
-            background: #161b22; border: 2px solid #30363d; 
-            display: block; cursor: crosshair; box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        }
+        body { margin: 0; background: #0d1117; color: #c9d1d9; font-family: sans-serif; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+        canvas { background: #161b22; border: 2px solid #30363d; display: block; cursor: crosshair; }
         .ui { position: absolute; top: 20px; left: 20px; pointer-events: none; }
-        .instructions { position: absolute; bottom: 20px; color: #8b949e; }
     </style>
 </head>
 <body>
 
     <div class="ui">
-        <h2 id="status">Vault Infiltration: Active</h2>
+        <h2 id="status">Vault Infiltration</h2>
         <div id="score">Momentum: 0</div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
 
-    <div class="instructions">Click and Hold to Grapple | Swing to gain speed | Avoid Red Lasers</div>
-
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const scoreEl = document.getElementById('score');
+        canvas.width = 800; canvas.height = 600;
 
-        // Game Settings
-        canvas.width = 800;
-        canvas.height = 600;
         const gravity = 0.25;
-        const friction = 0.99;
+        const friction = 0.98;
+        let particles = [];
+        let shakeAmount = 0;
 
-        // Player State
-        let player = {
-            x: 100, y: 300,
-            vx: 0, vy: 0,
-            radius: 10,
-            color: '#58a6ff'
-        };
+        let player = { x: 100, y: 300, vx: 0, vy: 0, radius: 10, color: '#58a6ff' };
+        let hook = { active: false, x: 0, y: 0, length: 0 };
 
-        // Grapple State
-        let hook = {
-            active: false,
-            x: 0, y: 0,
-            length: 0
-        };
+        class Particle {
+            constructor(x, y, vx, vy, color, life) {
+                this.x = x; this.y = y;
+                this.vx = vx; this.vy = vy;
+                this.color = color;
+                this.life = life;
+                this.maxLife = life;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+            }
+            draw() {
+                ctx.globalAlpha = this.life / this.maxLife;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
 
-        // Obstacles (Lasers)
-        const lasers = [
-            {x1: 300, y1: 0, x2: 300, y2: 400},
-            {x1: 500, y1: 200, x2: 500, y2: 600},
-            {x1: 0, y1: 500, x2: 800, y2: 500}
-        ];
+        function createExplosion(x, y, color, count, power = 6) {
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(
+                    x, y, 
+                    (Math.random() - 0.5) * power, 
+                    (Math.random() - 0.5) * power, 
+                    color, 
+                    20 + Math.random() * 20
+                ));
+            }
+        }
 
-        const goal = { x: 750, y: 100, radius: 20 };
-
-        // Input Handling
         window.addEventListener('mousedown', (e) => {
             const rect = canvas.getBoundingClientRect();
             hook.x = e.clientX - rect.left;
             hook.y = e.clientY - rect.top;
-            
-            // Calculate distance
             const dx = hook.x - player.x;
             const dy = hook.y - player.y;
             hook.length = Math.sqrt(dx * dx + dy * dy);
             hook.active = true;
+            createExplosion(hook.x, hook.y, '#f85149', 8, 3);
         });
 
-        window.addEventListener('mouseup', () => {
-            hook.active = false;
-        });
+        window.addEventListener('mouseup', () => hook.active = false);
 
         function update() {
+            // Apply Screen Shake decay
+            if (shakeAmount > 0) shakeAmount *= 0.9;
+            if (shakeAmount < 0.1) shakeAmount = 0;
+
             if (hook.active) {
-                // Pendulum Physics
                 const dx = player.x - hook.x;
                 const dy = player.y - hook.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
-                // If rope is stretched, pull player back
                 if (distance > hook.length) {
                     const angle = Math.atan2(dy, dx);
-                    
-                    // Constraint: keep player at hook length
                     player.x = hook.x + Math.cos(angle) * hook.length;
                     player.y = hook.y + Math.sin(angle) * hook.length;
-
-                    // Add tension force (perpendicular to the rope)
                     const velocityAngle = Math.atan2(player.vy, player.vx);
                     const force = Math.abs(Math.cos(velocityAngle - angle));
-                    
-                    player.vx -= Math.cos(angle) * force * 0.5;
-                    player.vy -= Math.sin(angle) * force * 0.5;
+                    player.vx -= Math.cos(angle) * force * 0.6;
+                    player.vy -= Math.sin(angle) * force * 0.6;
                 }
             }
 
-            // Apply movement
             player.vy += gravity;
             player.vx *= friction;
             player.vy *= friction;
             player.x += player.vx;
             player.y += player.vy;
 
-            // Wall Bounce
-            if (player.x < 0 || player.x > canvas.width) player.vx *= -0.5;
-            if (player.y < 0 || player.y > canvas.height) player.vy *= -0.5;
-
-            // Momentum Score
             const speed = Math.sqrt(player.vx**2 + player.vy**2);
-            scoreEl.innerText = `Momentum: ${Math.floor(speed * 10)}`;
-
-            // Win Condition
-            const distToGoal = Math.sqrt((player.x - goal.x)**2 + (player.y - goal.y)**2);
-            if (distToGoal < goal.radius + player.radius) {
-                alert("Diamond Secured! High Momentum: " + Math.floor(speed * 10));
-                reset();
+            
+            // Trail
+            if (speed > 5) {
+                particles.push(new Particle(player.x, player.y, -player.vx * 0.2, -player.vy * 0.2, '#58a6ff', 15));
             }
 
-            checkLaserCollision();
-        }
+            // Wall Collision with Shake
+            let hitWall = false;
+            if (player.x < 10) { player.x = 10; player.vx *= -0.5; hitWall = true; }
+            if (player.x > 790) { player.x = 790; player.vx *= -0.5; hitWall = true; }
+            if (player.y < 10) { player.y = 10; player.vy *= -0.5; hitWall = true; }
+            if (player.y > 590) { player.y = 590; player.vy *= -0.5; hitWall = true; }
 
-        function checkLaserCollision() {
-            // Simple check: if player hits floor or specific laser lines
-            if (player.y > 590) reset();
-        }
+            if (hitWall && speed > 4) {
+                shakeAmount = speed * 1.5; // More speed = more shake
+                createExplosion(player.x, player.y, '#fff', 10, speed);
+            }
 
-        function reset() {
-            player.x = 100; player.y = 300;
-            player.vx = 0; player.vy = 0;
-            hook.active = false;
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => p.update());
+
+            document.getElementById('score').innerText = `Momentum: ${Math.floor(speed * 10)}`;
         }
 
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw Vault Background
-            ctx.strokeStyle = '#21262d';
-            ctx.lineWidth = 1;
-            for(let i=0; i<canvas.width; i+=40) {
-                ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,600); ctx.stroke();
+            ctx.save();
+            
+            // Apply Shake Translation
+            if (shakeAmount > 0) {
+                const dx = (Math.random() - 0.5) * shakeAmount;
+                const dy = (Math.random() - 0.5) * shakeAmount;
+                ctx.translate(dx, dy);
             }
 
-            // Draw Grapple Line
+            ctx.clearRect(-10, -10, canvas.width + 20, canvas.height + 20);
+
+            // Draw Grapple
             if (hook.active) {
                 ctx.beginPath();
                 ctx.moveTo(player.x, player.y);
                 ctx.lineTo(hook.x, hook.y);
-                ctx.strokeStyle = '#8b949e';
+                ctx.strokeStyle = '#30363d';
                 ctx.lineWidth = 2;
                 ctx.stroke();
-                
-                // Draw Hook Point
-                ctx.fillStyle = '#f85149';
-                ctx.beginPath();
-                ctx.arc(hook.x, hook.y, 4, 0, Math.PI * 2);
-                ctx.fill();
             }
 
-            // Draw Lasers
-            ctx.strokeStyle = '#f85149';
-            ctx.lineWidth = 3;
-            lasers.forEach(l => {
-                ctx.beginPath();
-                ctx.moveTo(l.x1, l.y1);
-                ctx.lineTo(l.x2, l.y2);
-                ctx.stroke();
-            });
+            // Draw Particles
+            particles.forEach(p => p.draw());
 
-            // Draw Goal (Diamond)
-            ctx.fillStyle = '#f2cc60';
-            ctx.beginPath();
-            ctx.arc(goal.x, goal.y, goal.radius, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Draw Player (The Thief)
+            // Draw Player
             ctx.fillStyle = player.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = player.color;
             ctx.beginPath();
             ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
             ctx.fill();
             
-            // Add a little eye to show direction
-            ctx.fillStyle = "white";
-            ctx.beginPath();
-            ctx.arc(player.x + (player.vx*2), player.y - 2, 3, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.restore(); // Reset transform for next frame
         }
 
-        function loop() {
-            update();
-            draw();
-            requestAnimationFrame(loop);
-        }
-
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
         loop();
     </script>
 </body>
